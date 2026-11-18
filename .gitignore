@@ -1,0 +1,14 @@
+# Local overrides & environment files
+config.local.php
+.env
+.env.*
+
+# Runtime status logs
+scraper_status.json
+*.log
+
+# OS / Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
