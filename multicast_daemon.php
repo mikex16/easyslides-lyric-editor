@@ -15,18 +15,29 @@ $pidFile = __DIR__ . '/obs_daemon.pid';
 file_put_contents($pidFile, (string)getmypid());
 
 /**
+ * Detect local LAN IPv4 address (Easyslides binds TcpListener to the active LAN IP)
+ */
+function detectLocalLanIp(): string {
+    $ip = @gethostbyname((string)@gethostname());
+    if (is_string($ip) && $ip !== '' && $ip !== '127.0.0.1' && filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+        return $ip;
+    }
+    return '127.0.0.1';
+}
+
+/**
  * Load multicast connection config
  */
 function loadObsConfig(): array {
     global $configFile;
     $defaults = [
-        'host' => '127.0.0.1',
+        'host' => detectLocalLanIp(),
         'port' => 9701,
         'service_type' => 1, // 1 = LiveScreen, 0 = StageDisplay
         'password' => '',
         'nickname' => 'OBS-Overlay',
         'enabled' => true,
-        'theme' => 'glass', // glass, cinema, gradient, stage
+        'theme' => 'glass',
         'font_size' => 42,
         'show_title' => true,
         'show_section' => true,
@@ -37,7 +48,7 @@ function loadObsConfig(): array {
         'accent_color' => '#f97316',
     ];
     if (file_exists($configFile)) {
-        $data = json_decode((string)file_get_contents($configFile), true);
+        $data = json_decode((string)@file_get_contents($configFile), true);
         if (is_array($data)) {
             return array_merge($defaults, $data);
         }
@@ -108,74 +119,146 @@ function rsaXmlToPem(string $xml): string {
 }
 
 /**
- * Generate a client RSA keypair and return its public key in .NET <RSAKeyValue> XML format
- */
-function generateClientRsaXml(): string {
-    $res = openssl_pkey_new([
-        'private_key_bits' => 1024,
-        'private_key_type' => OPENSSL_KEYTYPE_RSA,
-    ]);
-    if ($res !== false) {
-        $details = openssl_pkey_get_details($res);
-        if (!empty($details['rsa']['n']) && !empty($details['rsa']['e'])) {
-            $mod = base64_encode($details['rsa']['n']);
-            $exp = base64_encode($details['rsa']['e']);
-            return "<RSAKeyValue><Modulus>$mod</Modulus><Exponent>$exp</Exponent></RSAKeyValue>";
-        }
-    }
-    // Fallback valid 1024-bit RSA public key XML if openssl keygen lacks config on Windows
-    $fallbackMod = 'vW7F6nB+u2fR2G8sK7tP1xQ9zL4mV5nC8bX3wZ0yR1tY6uI2oP5aS8dF1gH4jK7lZ9xC2vB5nM8qW1eR4tY7uI0oP3aS6dF9gH2jK5lZ8xC1vB4nM7qW0eR3tY6uI9oP2aS5dF8gH1jK4lZ7xC0vB3nM6qW9eR2tY5uI8oP1aS4d=';
-    return "<RSAKeyValue><Modulus>$fallbackMod</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
-}
-
-/**
  * Build an Easyslides SocketCommand XML packet
+ * Must be formatted with CRLF & indentation matching .NET XmlTextWriter(Formatting.Indented)
+ * so Easyslides' MoveToXMLItemElement reader does not skip sibling elements!
  */
 function buildSocketCommandXml(int $command, string $clientNoOrName = '0', string $msg1 = '', string $msg2 = '', string $msg3 = '', int $remoteItemId = 0): string {
     $esc = fn(string $s) => htmlspecialchars($s, ENT_XML1 | ENT_COMPAT, 'UTF-8');
-    return '<?xml version="1.0" encoding="utf-8"?>'
-        . '<Easyslides><SocketItem>'
-        . '<Command>' . $command . '</Command>'
-        . '<ClientNo>' . $esc($clientNoOrName) . '</ClientNo>'
-        . '<ShowRunning>True</ShowRunning>'
-        . '<LiveScreenSize>0</LiveScreenSize>'
-        . '<CurSlideNo>0</CurSlideNo>'
-        . '<RemoteItemID>' . $remoteItemId . '</RemoteItemID>'
-        . '<TotalItems>0</TotalItems>'
-        . '<SlideTransition>0</SlideTransition>'
-        . '<MessageData1>' . $esc($msg1) . '</MessageData1>'
-        . '<MessageData2>' . $esc($msg2) . '</MessageData2>'
-        . '<MessageData3>' . $esc($msg3) . '</MessageData3>'
-        . '</SocketItem></Easyslides>';
+    return "<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n"
+        . "<Easyslides>\r\n"
+        . "  <SocketItem>\r\n"
+        . "    <Command>" . $command . "</Command>\r\n"
+        . "    <ClientNo>" . $esc($clientNoOrName) . "</ClientNo>\r\n"
+        . "    <ShowRunning>True</ShowRunning>\r\n"
+        . "    <LiveScreenSize>0</LiveScreenSize>\r\n"
+        . "    <CurSlideNo>0</CurSlideNo>\r\n"
+        . "    <RemoteItemID>" . $remoteItemId . "</RemoteItemID>\r\n"
+        . "    <TotalItems>0</TotalItems>\r\n"
+        . "    <SlideTransition>0</SlideTransition>\r\n"
+        . "    <MessageData1>" . $esc($msg1) . "</MessageData1>\r\n"
+        . "    <MessageData2>" . $esc($msg2) . "</MessageData2>\r\n"
+        . "    <MessageData3>" . $esc($msg3) . "</MessageData3>\r\n"
+        . "  </SocketItem>\r\n"
+        . "</Easyslides>";
 }
 
 /**
- * Parse Easyslides <LyricsAndNotationsArray> string into structured slides
- * Format: <"SubItems0","SubItems1","SubItems2","SubItems3","SubItems4"><...>
- * where SubItems0 = Section Heading, SubItems1 = Slide #, SubItems2 = Region 1 Lyrics, SubItems3 = Chords, SubItems4 = Region 2 Lyrics
+ * Map Easyslides numerical section code (from SlidesArray / LyricsAndNotationsArray) to human label
  */
-function parseLyricsAndNotationsArray(string $rawArray, string $fallbackContents = ''): array {
-    $slides = [];
-    if (preg_match_all('/<(".*?")>/s', $rawArray, $matches)) {
-        foreach ($matches[1] as $idx => $tuple) {
+function mapEasyslidesSectionCode(int $code, string $prevLabel = ''): string {
+    if ($code < 0) {
+        return $prevLabel;
+    }
+    if ($code >= 1 && $code <= 99) {
+        return "Verse $code";
+    }
+    $map = [
+        5011 => 'PreChorus',
+        5012 => 'PreChorus 2',
+        5013 => 'PreChorus 3',
+        5014 => 'PreChorus 4',
+        5021 => 'Chorus',
+        5022 => 'Chorus 2',
+        5023 => 'Chorus 3',
+        5024 => 'Chorus 4',
+        5031 => 'Bridge',
+        5032 => 'Bridge 2',
+        5033 => 'Bridge 3',
+        5034 => 'Bridge 4',
+        5041 => 'Intro',
+        5051 => 'Tag',
+        5061 => 'End',
+    ];
+    return $map[$code] ?? ($code > 0 ? (string)$code : $prevLabel);
+}
+
+/**
+ * Parse Easyslides <LyricsAndNotationsArray> + <SlidesArray> into structured slides
+ *
+ * In Easyslides 5.2:
+ * - <LyricsAndNotationsArray> is a list of individual lines: <"secCode","regionNo","lyricLine","chordLine","metrics">
+ * - <SlidesArray> is a list of slide definitions (1-based after 0th dummy tuple):
+ *   (0,0,0,-1,0,0,0,0)(secCode, reg1StartLine, reg1EndLine, reg2StartLine, reg2EndLine, ...)
+ */
+function parseEasyslidesItemSlides(string $rawLyricsArray, string $rawSlidesArray, string $fallbackContents = ''): array {
+    $lines = [];
+    if (preg_match_all('/<(".*?")>/s', $rawLyricsArray, $matches)) {
+        foreach ($matches[1] as $tuple) {
             if (preg_match_all('/"(.*?)"/s', $tuple, $fields)) {
                 $vals = array_map(function ($v) {
                     return str_replace(['&quot;', '&lt;', '&gt;', '&amp;'], ['"', '<', '>', '&'], $v);
                 }, $fields[1]);
-                $slides[] = [
-                    'slide_no' => $idx + 1,
-                    'section' => trim($vals[0] ?? ''),
-                    'region1' => trim($vals[2] ?? ''),
+                $lines[] = [
+                    'sec_code' => (int)($vals[0] ?? 0),
+                    'region' => (int)($vals[1] ?? 1),
+                    'lyric' => trim($vals[2] ?? ''),
                     'notations' => trim($vals[3] ?? ''),
-                    'region2' => trim($vals[4] ?? ''),
                 ];
             }
         }
     }
 
-    // Fallback: parse raw <Contents> if <LyricsAndNotationsArray> wasn't populated
+    $slides = [];
+    if (!empty($lines) && preg_match_all('/\(([^)]+)\)/', $rawSlidesArray, $sMatches)) {
+        $tuples = $sMatches[1];
+        $lastSectionLabel = '';
+        // Index 0 in SlidesArray is (0,0,0,-1,0,0,0,0); actual slides start at index 1
+        for ($i = 1; $i < count($tuples); $i++) {
+            $nums = array_map('intval', explode(',', $tuples[$i]));
+            $secCode = $nums[0] ?? 0;
+            $r1Start = $nums[1] ?? -1;
+            $r1End = $nums[2] ?? -1;
+            $r2Start = $nums[3] ?? -1;
+            $r2End = $nums[4] ?? -1;
+
+            $secLabel = mapEasyslidesSectionCode($secCode, $lastSectionLabel);
+            if ($secLabel !== '') {
+                $lastSectionLabel = $secLabel;
+            }
+
+            $r1Lines = [];
+            if ($r1Start >= 0 && $r1End >= $r1Start) {
+                for ($l = $r1Start; $l <= $r1End; $l++) {
+                    if (isset($lines[$l]) && $lines[$l]['lyric'] !== '') {
+                        $r1Lines[] = $lines[$l]['lyric'];
+                    }
+                }
+            }
+
+            $r2Lines = [];
+            if ($r2Start >= 0 && $r2End >= $r2Start) {
+                for ($l = $r2Start; $l <= $r2End; $l++) {
+                    if (isset($lines[$l]) && $lines[$l]['lyric'] !== '') {
+                        $r2Lines[] = $lines[$l]['lyric'];
+                    }
+                }
+            }
+
+            $slides[] = [
+                'slide_no' => $i,
+                'section' => $secLabel,
+                'region1' => implode("\n", $r1Lines),
+                'region2' => implode("\n", $r2Lines),
+            ];
+        }
+    }
+
+    // Fallback if SlidesArray was not present: group lines by 2 or parse <Contents>
+    if (empty($slides) && !empty($lines)) {
+        $chunks = array_chunk($lines, 2);
+        foreach ($chunks as $idx => $chunk) {
+            $slides[] = [
+                'slide_no' => $idx + 1,
+                'section' => mapEasyslidesSectionCode($chunk[0]['sec_code'] ?? 0),
+                'region1' => implode("\n", array_column($chunk, 'lyric')),
+                'region2' => '',
+            ];
+        }
+    }
+
     if (empty($slides) && trim($fallbackContents) !== '') {
-        $lines = preg_split('/\r\n|\r|\n/', trim($fallbackContents));
+        $rawLines = preg_split('/\r\n|\r|\n/', trim($fallbackContents));
         $curSection = '';
         $curBlock = [];
         $slideNo = 1;
@@ -186,13 +269,12 @@ function parseLyricsAndNotationsArray(string $rawArray, string $fallbackContents
                     'slide_no' => $slideNo++,
                     'section' => $curSection,
                     'region1' => $text,
-                    'notations' => '',
                     'region2' => '',
                 ];
             }
             $curBlock = [];
         };
-        foreach ($lines as $line) {
+        foreach ($rawLines as $line) {
             $t = trim($line);
             if (preg_match('/^\[([^\]]+)\]$/', $t, $m)) {
                 $flush();
@@ -210,8 +292,6 @@ function parseLyricsAndNotationsArray(string $rawArray, string $fallbackContents
     return $slides;
 }
 
-$clientRsaXml = generateClientRsaXml();
-
 writeObsState([
     'connection_status' => 'starting',
     'connection_message' => 'Starting Easyslides Multicast Bridge...',
@@ -220,7 +300,6 @@ writeObsState([
 while (true) {
     clearstatcache();
     if (!file_exists($pidFile) || trim((string)@file_get_contents($pidFile)) !== (string)getmypid()) {
-        // Another daemon instance took over or stop was requested
         exit(0);
     }
 
@@ -234,22 +313,37 @@ while (true) {
         continue;
     }
 
-    $host = trim($cfg['host'] ?? '127.0.0.1');
+    $host = trim($cfg['host'] ?? '');
+    if ($host === '') {
+        $host = detectLocalLanIp();
+    }
     $port = (int)($cfg['port'] ?? 9701);
     $serviceType = (int)($cfg['service_type'] ?? 1);
+    $serviceName = ($serviceType === 0) ? 'StageDisplay' : 'LiveScreen';
     $password = trim($cfg['password'] ?? '');
     $nickname = trim($cfg['nickname'] ?? 'OBS-Overlay');
 
     writeObsState([
         'connection_status' => 'connecting',
-        'connection_message' => "Connecting to Easyslides Multicast at $host:$port...",
+        'connection_message' => "Connecting to Easyslides Multicast at $host:$port ($serviceName)...",
         'host' => $host,
         'port' => $port,
     ]);
 
     $errno = 0;
     $errstr = '';
-    $socket = @stream_socket_client("tcp://$host:$port", $errno, $errstr, 4.0);
+    $socket = @stream_socket_client("tcp://$host:$port", $errno, $errstr, 3.5);
+
+    // If 127.0.0.1 failed because Easyslides binds exclusively to the LAN IP, automatically try the detected LAN IP!
+    if (!$socket && $host === '127.0.0.1') {
+        $lanIp = detectLocalLanIp();
+        if ($lanIp !== '127.0.0.1') {
+            $socket = @stream_socket_client("tcp://$lanIp:$port", $errno, $errstr, 3.5);
+            if ($socket) {
+                $host = $lanIp;
+            }
+        }
+    }
 
     if (!$socket) {
         writeObsState([
@@ -276,11 +370,11 @@ while (true) {
     $showRunning = true;
     $isBlack = false;
     $isClear = false;
-    $alertText = '';
-    $lastActivity = time();
 
     while (is_resource($socket) && !feof($socket)) {
+        clearstatcache();
         if (!file_exists($pidFile) || trim((string)@file_get_contents($pidFile)) !== (string)getmypid()) {
+            @fwrite($socket, buildSocketCommandXml(105, $clientSocketId));
             fclose($socket);
             exit(0);
         }
@@ -300,7 +394,6 @@ while (true) {
                 break;
             }
             $buffer .= $chunk;
-            $lastActivity = time();
 
             // Process all complete <?xml ... </Easyslides> frames in buffer
             while (($endPos = strpos($buffer, '</Easyslides>')) !== false) {
@@ -325,23 +418,25 @@ while (true) {
                 $pktRemoteItemId = (int)$si->RemoteItemID;
                 $msg1 = (string)$si->MessageData1;
                 $msg2 = (string)$si->MessageData2;
-                $msg3 = (string)$si->MessageData3;
 
                 switch ($cmd) {
                     case 11: // ToClient_ServerRequestWhichServiceRequired
-                        $reply = buildSocketCommandXml(12, $clientSocketId, (string)$serviceType);
+                        // Easyslides expects the enum name string: "LiveScreen" or "StageDisplay"
+                        $reply = buildSocketCommandXml(12, $clientSocketId, $serviceName);
                         @fwrite($socket, $reply);
                         break;
 
-                    case 13: // ToClient_ServerRequestConnectPassword (msg1 = Server Public Key XML)
-                        $pem = rsaXmlToPem($msg1);
+                    case 13: // ToClient_ServerRequestConnectPassword (msg2 = Server Public Key XML)
+                        $serverPubKeyXml = trim($msg2) !== '' ? trim($msg2) : trim($msg1);
+                        $pem = rsaXmlToPem($serverPubKeyXml);
                         $encB64 = '';
                         if ($pem !== '') {
                             @openssl_public_encrypt($password, $encryptedBytes, $pem, OPENSSL_PKCS1_OAEP_PADDING);
                             $encB64 = base64_encode($encryptedBytes ?: '');
                         }
                         $authMsg1 = $nickname . "\n" . $encB64;
-                        $reply = buildSocketCommandXml(14, $clientSocketId, $authMsg1, $clientRsaXml);
+                        // Pass valid 1024-bit <RSAKeyValue> XML in MessageData2
+                        $reply = buildSocketCommandXml(14, $clientSocketId, $authMsg1, $serverPubKeyXml);
                         @fwrite($socket, $reply);
                         break;
 
@@ -353,9 +448,10 @@ while (true) {
                         break 2;
 
                     case 16: // ToClient_ServerAcceptsConnection
+                        $assignedName = trim(explode("\n", $msg1)[0] ?? $nickname);
                         writeObsState([
                             'connection_status' => 'connected',
-                            'connection_message' => "Connected to Easyslides ($host:$port) as $nickname",
+                            'connection_message' => "Connected to Easyslides ($host:$port) as $assignedName",
                         ]);
                         // Request initial item state (Command 35 = RefreshCurrentItem, Command 18 = RemoteScreenConnected)
                         $initCmd = ($serviceType === 0) ? 18 : 35;
@@ -364,13 +460,14 @@ while (true) {
                         break;
 
                     case 31: // ToClient_ItemChanged
-                        $showRunning = $pktShowRunning;
+                        $showRunning = true;
                         $curSlideNo = max(1, $pktSlideNo);
                         if (isset($xml->Item)) {
                             $it = $xml->Item;
                             $contents = (string)$it->Contents;
                             $rawLyricsArr = (string)$it->LyricsAndNotationsArray;
-                            $slides = parseLyricsAndNotationsArray($rawLyricsArr, $contents);
+                            $rawSlidesArr = (string)$it->SlidesArray;
+                            $slides = parseEasyslidesItemSlides($rawLyricsArr, $rawSlidesArr, $contents);
 
                             $currentItem = [
                                 'remote_item_id' => $pktRemoteItemId,
@@ -411,11 +508,10 @@ while (true) {
                         break;
 
                     case 34: // ToClient_SlideChanged
-                        $showRunning = $pktShowRunning;
+                        $showRunning = true;
                         $curSlideNo = max(1, $pktSlideNo);
 
-                        if ($pktRemoteItemId !== $currentItem['remote_item_id']) {
-                            // Ask server to resend full item
+                        if ($pktRemoteItemId !== $currentItem['remote_item_id'] || empty($currentItem['slides'])) {
                             $reqItem = buildSocketCommandXml(35, $clientSocketId, '', '', '', $pktRemoteItemId);
                             @fwrite($socket, $reqItem);
                         }
@@ -460,7 +556,6 @@ while (true) {
 
                     case 52: // ToClient_ReferenceAlertHide
                     case 54: // ToClient_GeneralAlertHide
-                        $alertText = '';
                         writeObsState(['alert_text' => '']);
                         break;
 

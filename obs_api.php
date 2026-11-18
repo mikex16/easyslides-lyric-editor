@@ -130,13 +130,11 @@ switch ($action) {
     }
 
     case 'start_daemon': {
-        $phpExe = (defined('PHP_BINARY') && PHP_BINARY && is_file(PHP_BINARY))
-            ? PHP_BINARY
-            : (is_file('c:\\xampp\\php\\php.exe') ? 'c:\\xampp\\php\\php.exe' : 'php');
+        $phpExe = getPhpCliExecutable();
         $script = __DIR__ . DIRECTORY_SEPARATOR . 'multicast_daemon.php';
         $cmd = sprintf('start /B "" "%s" "%s" > NUL 2>&1', $phpExe, $script);
         pclose(popen($cmd, 'r'));
-        usleep(300000);
+        usleep(500000);
         echo json_encode([
             'ok' => true,
             'message' => 'Easyslides Multicast Listener started!',

@@ -24,6 +24,26 @@ function detectEasyslidesDataDir(): string {
     return str_replace('\\', '/', __DIR__);
 }
 
+/**
+ * Find the PHP CLI executable (avoids returning Apache httpd.exe when running under mod_php)
+ */
+function getPhpCliExecutable(): string {
+    if (defined('PHP_BINARY') && PHP_BINARY && is_file(PHP_BINARY) && stripos(basename(PHP_BINARY), 'php') !== false) {
+        return PHP_BINARY;
+    }
+    $candidates = [
+        'C:/xampp/php/php.exe',
+        dirname(PHP_BINDIR) . '/php/php.exe',
+        PHP_BINDIR . '/php.exe',
+    ];
+    foreach ($candidates as $c) {
+        if (is_file($c)) {
+            return str_replace('/', DIRECTORY_SEPARATOR, $c);
+        }
+    }
+    return 'php';
+}
+
 $detectedDataDir = detectEasyslidesDataDir();
 if (!defined('EASYSLIDES_DATA_DIR')) {
     define('EASYSLIDES_DATA_DIR', $detectedDataDir);

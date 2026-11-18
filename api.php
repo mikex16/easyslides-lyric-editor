@@ -388,9 +388,7 @@ try {
             $targetDb = $req['target_db'] ?? DEFAULT_DB_FILE;
             $source = $req['source'] ?? 'jrchord';
             $uppercase = isset($req['uppercase']) && !$req['uppercase'] ? 0 : 1;
-            $phpExe = (defined('PHP_BINARY') && PHP_BINARY && is_file(PHP_BINARY))
-                ? PHP_BINARY
-                : (is_file('c:\\xampp\\php\\php.exe') ? 'c:\\xampp\\php\\php.exe' : 'php');
+            $phpExe = getPhpCliExecutable();
             $script = ($source === 'lagurohani')
                 ? (__DIR__ . DIRECTORY_SEPARATOR . 'scraper_lagurohani_cli.php')
                 : (__DIR__ . DIRECTORY_SEPARATOR . 'scraper_cli.php');
