@@ -130,11 +130,19 @@ switch ($action) {
     }
 
     case 'start_daemon': {
+        // Stop any existing daemon first so it cleanly closes its TCP slot on Easyslides
+        if (file_exists($pidFile)) {
+            $oldPid = (int)trim((string)@file_get_contents($pidFile));
+            @unlink($pidFile);
+            if ($oldPid > 0) {
+                usleep(1100000);
+            }
+        }
         $phpExe = getPhpCliExecutable();
         $script = __DIR__ . DIRECTORY_SEPARATOR . 'multicast_daemon.php';
         $cmd = sprintf('start /B "" "%s" "%s" > NUL 2>&1', $phpExe, $script);
         pclose(popen($cmd, 'r'));
-        usleep(500000);
+        usleep(600000);
         echo json_encode([
             'ok' => true,
             'message' => 'Easyslides Multicast Listener started!',
