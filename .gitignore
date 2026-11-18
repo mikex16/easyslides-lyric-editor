@@ -3,8 +3,12 @@ config.local.php
 .env
 .env.*
 
-# Runtime status logs
+# Runtime status & OBS state files
 scraper_status.json
+obs_state.json
+obs_state.json.tmp
+obs_config.json
+obs_daemon.pid
 *.log
 
 # OS / Editor files

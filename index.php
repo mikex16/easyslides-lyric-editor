@@ -699,6 +699,7 @@ $defaultDb = DEFAULT_DB_FILE;
     </div>
 
     <div style="display:flex; align-items:center; gap:8px;">
+      <a href="obs_control.php" class="btn" title="Open OBS Browser Source & Easyslides Multicast Studio">📺 OBS Overlay Studio</a>
       <button class="btn btn-accent" onclick="openScraperModal()">🌐 Scrape Songs</button>
       <button class="btn btn-primary" onclick="newSongForm()">+ New Song</button>
     </div>
@@ -1383,14 +1384,41 @@ $defaultDb = DEFAULT_DB_FILE;
         return;
       }
 
+      window._currentPreviewSlides = sections.map((s, idx) => ({
+        slide_no: idx + 1,
+        section: s.tag,
+        region1: s.text,
+        region2: ''
+      }));
+
       container.innerHTML = sections.map((s, idx) => `
-        <div class="slide-card">
+        <div class="slide-card" style="cursor:pointer;" onclick="projectSlideFromEditor(${idx + 1})" title="Click to send Slide #${idx + 1} to OBS Overlay">
           <span class="slide-badge">${escapeHtml(s.tag)}</span>
-          <span class="slide-num">#${idx + 1}</span>
+          <span class="slide-num">#${idx + 1} • Click → OBS</span>
           ${s.isFirstOfSection ? `<div class="slide-heading">${escapeHtml(s.tag)}</div>` : ''}
           <div class="slide-lyrics">${escapeHtml(s.text)}</div>
         </div>
       `).join('');
+    }
+
+    async function projectSlideFromEditor(slideNo) {
+      const title1 = document.getElementById('songTitle1').value || '';
+      const author = document.getElementById('songAuthor').value || '';
+      const slides = window._currentPreviewSlides || [];
+      try {
+        await fetch('obs_api.php', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'push_slide',
+            title1,
+            author,
+            slides,
+            slide_no: slideNo
+          })
+        });
+        showToast(`Sent Slide #${slideNo} to OBS Overlay!`);
+      } catch (e) {}
     }
 
     // Copy Modal Logic
