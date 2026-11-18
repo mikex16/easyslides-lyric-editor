@@ -8,9 +8,25 @@ if (file_exists(__DIR__ . '/config.local.php')) {
     require_once __DIR__ . '/config.local.php';
 }
 
-$defaultUserDocs = str_replace('\\', '/', getenv('USERPROFILE') ?: getenv('HOME') ?: __DIR__) . '/Documents/EasyslidesData/Admin';
+function detectEasyslidesDataDir(): string {
+    $candidates = [];
+    if ($up = getenv('USERPROFILE')) {
+        $candidates[] = str_replace('\\', '/', $up) . '/Documents/EasyslidesData/Admin';
+    }
+    foreach (glob('C:/Users/*/Documents/EasyslidesData/Admin', GLOB_ONLYDIR) ?: [] as $dir) {
+        $candidates[] = str_replace('\\', '/', $dir);
+    }
+    foreach ($candidates as $cand) {
+        if (is_dir($cand . '/Databases')) {
+            return $cand;
+        }
+    }
+    return str_replace('\\', '/', __DIR__);
+}
+
+$detectedDataDir = detectEasyslidesDataDir();
 if (!defined('EASYSLIDES_DATA_DIR')) {
-    define('EASYSLIDES_DATA_DIR', is_dir($defaultUserDocs) ? $defaultUserDocs : (__DIR__ . '/databases'));
+    define('EASYSLIDES_DATA_DIR', $detectedDataDir);
 }
 if (!defined('EASYSLIDES_DB_DIR')) {
     define('EASYSLIDES_DB_DIR', is_dir(EASYSLIDES_DATA_DIR . '/Databases') ? (EASYSLIDES_DATA_DIR . '/Databases') : EASYSLIDES_DATA_DIR);
@@ -590,6 +606,11 @@ function parseLagurohaniHtml(string $html, string $url = '', bool $uppercase = t
     $baseTitle = preg_replace('/\s*\((?:Penyembahan[^)]*|Pujian[^)]*|Lirik[^)]*|Lagu\s+Rohani[^)]*)\)\s*$/iu', '', $baseTitle);
     $baseTitle = trim(preg_replace('/\s+/u', ' ', $baseTitle));
     if ($baseTitle === '') {
+        return null;
+    }
+
+    // Skip non-song blog articles (sermons, Bible verse lists, devotionals) on lagurohani.id
+    if (preg_match('/\b(Bahan\s+Khotbah|Khotbah\s+Kristen|Ayat\s+Alkitab|Renungan\s+Kristen|Renungan\s+Harian|Daftar\s+Lagu|Kumpulan\s+Lagu)\b/iu', $rawTitle)) {
         return null;
     }
 
