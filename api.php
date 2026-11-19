@@ -322,9 +322,10 @@ try {
 
             $isJrchord = (bool)preg_match('/^https?:\/\/(www\.)?jrchord\.com\/.+/i', $url);
             $isLagurohani = (bool)preg_match('/^https?:\/\/(www\.)?lagurohani\.id\/.+/i', $url);
+            $isAlkitab = (bool)preg_match('/^https?:\/\/(www\.)?alkitab\.app\/([A-Za-z0-9]+)\/([A-Za-z0-9]+)/i', $url, $alkMatches);
 
-            if ($url === '' || (!$isJrchord && !$isLagurohani)) {
-                jsonResponse(['ok' => false, 'error' => 'Please enter a valid jrchord.com or lagurohani.id song URL.'], 400);
+            if ($url === '' || (!$isJrchord && !$isLagurohani && !$isAlkitab)) {
+                jsonResponse(['ok' => false, 'error' => 'Please enter a valid jrchord.com, lagurohani.id, or alkitab.app/{BOOK}/{CODE} song URL.'], 400);
             }
 
             $ch = curl_init($url);
@@ -345,9 +346,13 @@ try {
                 jsonResponse(['ok' => false, 'error' => "Failed to fetch URL (HTTP $code)."], 400);
             }
 
-            $song = $isLagurohani
-                ? parseLagurohaniHtml($html, $url, $uppercase)
-                : parseJrchordHtml($html, $url, $uppercase);
+            if ($isAlkitab) {
+                $song = parseAlkitabAppSongHtml($html, strtoupper($alkMatches[2]), $alkMatches[3], $url, $uppercase);
+            } elseif ($isLagurohani) {
+                $song = parseLagurohaniHtml($html, $url, $uppercase);
+            } else {
+                $song = parseJrchordHtml($html, $url, $uppercase);
+            }
 
             if (!$song) {
                 jsonResponse(['ok' => false, 'error' => 'Could not parse song lyrics from that page.'], 400);
@@ -389,14 +394,21 @@ try {
             $source = $req['source'] ?? 'jrchord';
             $uppercase = isset($req['uppercase']) && !$req['uppercase'] ? 0 : 1;
             $phpExe = getPhpCliExecutable();
-            $script = ($source === 'lagurohani')
-                ? (__DIR__ . DIRECTORY_SEPARATOR . 'scraper_lagurohani_cli.php')
-                : (__DIR__ . DIRECTORY_SEPARATOR . 'scraper_cli.php');
-            $cmd = sprintf('start /B "" "%s" "%s" "%s" %d > NUL 2>&1', $phpExe, $script, $targetDb, $uppercase);
+            if ($source === 'alkitab') {
+                $script = __DIR__ . DIRECTORY_SEPARATOR . 'scraper_alkitab_cli.php';
+                $bookCode = trim($req['book'] ?? 'ALL');
+                $cmd = sprintf('start /B "" "%s" "%s" "%s" %d > NUL 2>&1', $phpExe, $script, $bookCode, $uppercase);
+            } elseif ($source === 'lagurohani') {
+                $script = __DIR__ . DIRECTORY_SEPARATOR . 'scraper_lagurohani_cli.php';
+                $cmd = sprintf('start /B "" "%s" "%s" "%s" %d > NUL 2>&1', $phpExe, $script, $targetDb, $uppercase);
+            } else {
+                $script = __DIR__ . DIRECTORY_SEPARATOR . 'scraper_cli.php';
+                $cmd = sprintf('start /B "" "%s" "%s" "%s" %d > NUL 2>&1', $phpExe, $script, $targetDb, $uppercase);
+            }
             pclose(popen($cmd, 'r'));
             jsonResponse([
                 'ok' => true,
-                'message' => "Started background scrape ($source) into $targetDb.",
+                'message' => "Started background scrape ($source).",
             ]);
             break;
         }

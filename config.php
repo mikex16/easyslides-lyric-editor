@@ -868,6 +868,153 @@ function parseLagurohaniHtml(string $html, string $url = '', bool $uppercase = t
 }
 
 /**
+ * Parse an https://alkitab.app/{BOOK}/{CODE} HTML page into an Easyslides song array
+ * Formats title1 as "<Song Title> - <BOOK> <CODE>" (e.g. "Haleluya, Pujilah - KJ 1")
+ */
+function parseAlkitabAppSongHtml(string $html, string $bookCode = '', string $songCode = '', string $url = '', bool $uppercase = true): ?array {
+    if (trim($html) === '') {
+        return null;
+    }
+
+    // Extract <div class='lagu'>...</div> block
+    if (!preg_match('/<div\s+class=[\'"]lagu[\'"][^>]*>(.*?)<div\s+class=[\'"]song-before-footer/is', $html, $lm)) {
+        return null;
+    }
+    $laguHtml = $lm[1];
+
+    // Extract code-badge (e.g. "KJ 1")
+    $codeBadge = trim($bookCode . ' ' . $songCode);
+    if (preg_match('/<div\s+class=[\'"]code-badge[\'"][^>]*>(.*?)<\/div>/is', $laguHtml, $cm)) {
+        $badge = trim(html_entity_decode(strip_tags($cm[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        if ($badge !== '') {
+            $codeBadge = $badge;
+        }
+    }
+
+    // Extract title (role-title judul)
+    $title = '';
+    if (preg_match('/<div\s+class=[\'"][^\'"]*role-title\s+judul[^\'"]*[\'"][^>]*>(.*?)<\/div>/is', $laguHtml, $tm)) {
+        $title = trim(html_entity_decode(strip_tags($tm[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+    }
+    if ($title === '') {
+        return null;
+    }
+
+    // Extract original title (role-title_original judul_asli)
+    $titleOriginal = '';
+    if (preg_match('/<div\s+class=[\'"][^\'"]*judul_asli[^\'"]*[\'"][^>]*>(.*?)<\/div>/is', $laguHtml, $tom)) {
+        $titleOriginal = trim(html_entity_decode(strip_tags($tom[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+    }
+
+    // Extract musical info (nadaDasar, e.g. "1=F 4/4" or "Do=D 3/4")
+    $songKey = '';
+    $timing = '';
+    if (preg_match('/<div\s+class=[\'"][^\'"]*nadaDasar[^\'"]*[\'"][^>]*>(.*?)<\/div>/is', $laguHtml, $nm)) {
+        $musical = trim(html_entity_decode(strip_tags($nm[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        if (preg_match('/(?:1|do)\s*=\s*([A-G][b#]?m?)/i', $musical, $km)) {
+            $songKey = ucfirst(trim($km[1]));
+        }
+        if (preg_match('/\b([1-9][0-9]*\/[1-9][0-9]*)\b/', $musical, $tim)) {
+            $timing = $tim[1];
+        }
+    }
+
+    // Extract copyright from footer-song
+    $copyright = '';
+    if (preg_match('/<div\s+class=[\'"]footer-song[\'"][^>]*>(.*?)<\/div>/is', $html, $fm)) {
+        $copyright = trim(html_entity_decode(strip_tags($fm[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+    }
+
+    // Extract all <div class="bait..."> blocks inside <div class="lirik">
+    $sections = [];
+    $sequenceParts = [];
+    $seenChorusFingerprints = [];
+    $chorusCount = 0;
+    $verseCounter = 0;
+
+    if (preg_match_all('/<div\s+class=[\'"]bait(\s+reff)?[\'"][^>]*>(.*?)<div\s+class=[\'"]break[\'"]><\/div>\s*<\/div>/is', $laguHtml, $baitMatches, PREG_SET_ORDER)) {
+        foreach ($baitMatches as $bm) {
+            $isReff = !empty(trim($bm[1] ?? ''));
+            $baitInner = $bm[2];
+
+            $baitNo = '';
+            if (!$isReff && preg_match('/<div\s+class=[\'"]bait-no[\'"][^>]*>(.*?)<\/div>/is', $baitInner, $bnm)) {
+                $baitNo = trim(strip_tags($bnm[1]));
+            }
+
+            $lines = [];
+            if (preg_match_all('/<div\s+class=[\'"]baris[^\'"]*[\'"][^>]*>(.*?)<\/div>/is', $baitInner, $barisMatches)) {
+                foreach ($barisMatches[1] as $rawBaris) {
+                    $lineText = trim(html_entity_decode(strip_tags($rawBaris), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+                    $lineText = trim(preg_replace('/\s+/u', ' ', $lineText));
+                    if ($lineText !== '') {
+                        if ($uppercase) {
+                            $lineText = mb_strtoupper($lineText, 'UTF-8');
+                        }
+                        $lines[] = $lineText;
+                    }
+                }
+            }
+
+            if (empty($lines)) {
+                continue;
+            }
+
+            // Format into 2-line slide blocks
+            $chunks = array_chunk($lines, 2);
+            $blocks = array_map(fn($c) => implode("\n", $c), $chunks);
+            $formattedBody = implode("\n\n", $blocks);
+
+            if ($isReff) {
+                $fp = md5(mb_strtolower(implode("\n", $lines), 'UTF-8'));
+                if (isset($seenChorusFingerprints[$fp])) {
+                    $sequenceParts[] = $seenChorusFingerprints[$fp]['seq'];
+                    continue;
+                }
+                $chorusCount++;
+                $tag = $chorusCount > 1 ? "[chorus $chorusCount]" : '[chorus]';
+                $seqCode = $chorusCount > 1 ? "c$chorusCount" : 'c';
+                $seenChorusFingerprints[$fp] = ['tag' => $tag, 'seq' => $seqCode];
+                $sequenceParts[] = $seqCode;
+                $sections[] = $tag . "\n" . $formattedBody;
+            } else {
+                $verseCounter++;
+                $num = (is_numeric($baitNo) && (int)$baitNo > 0) ? (int)$baitNo : $verseCounter;
+                if ($num > $verseCounter) {
+                    $verseCounter = $num;
+                }
+                $tag = "[$num]";
+                $sequenceParts[] = (string)$num;
+                $sections[] = $tag . "\n" . $formattedBody;
+            }
+        }
+    }
+
+    if (empty($sections)) {
+        return null;
+    }
+
+    $formattedTitle = $codeBadge !== '' ? ($title . ' - ' . $codeBadge) : $title;
+    $songNumInt = (int)preg_replace('/[^0-9]/', '', $songCode ?: $codeBadge);
+
+    return [
+        'title1' => $formattedTitle,
+        'title2' => $titleOriginal,
+        'base_title' => $title,
+        'author' => $codeBadge,
+        'songnumber' => $songNumInt,
+        'songkey' => $songKey,
+        'timing' => $timing,
+        'sequence' => implode(',', $sequenceParts),
+        'copyright' => $copyright,
+        'bookreference' => $codeBadge,
+        'userreference' => $url,
+        'contents' => implode("\n", $sections),
+        'url' => $url,
+    ];
+}
+
+/**
  * Insert or update a song item in an Easyslides SQLite database
  */
 function upsertEasyslidesSong(PDO $pdo, array $song, ?string $origTitle1 = null, ?string $origAuthor = null): bool {

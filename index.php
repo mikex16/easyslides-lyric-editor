@@ -863,18 +863,18 @@ $defaultDb = DEFAULT_DB_FILE;
     </main>
   </div>
 
-  <!-- Modal: Scrape from JRChord.com & LaguRohani.id -->
+  <!-- Modal: Scrape from JRChord.com, LaguRohani.id & Alkitab.app -->
   <div class="modal-backdrop" id="scraperModal">
     <div class="modal">
       <div class="modal-header">
-        <span>🌐 Scrape Song & Lyric (JRChord.com & LaguRohani.id)</span>
+        <span>🌐 Scrape Song & Lyric (JRChord.com, LaguRohani.id & Alkitab.app)</span>
         <button class="btn btn-sm" onclick="closeModal('scraperModal')">✕</button>
       </div>
       <div class="modal-body">
         <div class="field">
-          <label>Scrape Single Song URL (jrchord.com or lagurohani.id)</label>
+          <label>Scrape Single Song URL (jrchord.com, lagurohani.id, or alkitab.app/{BOOK}/{NO})</label>
           <div style="display:flex; gap:8px;">
-            <input type="text" id="scrapeUrlInput" placeholder="https://www.jrchord.com/... or https://www.lagurohani.id/..." style="flex:1;">
+            <input type="text" id="scrapeUrlInput" placeholder="https://www.jrchord.com/... or https://alkitab.app/KJ/1" style="flex:1;">
             <button class="btn btn-accent" onclick="scrapeSingleUrl(true)">Scrape & Save</button>
             <button class="btn" onclick="scrapeSingleUrl(false)">Load into Editor</button>
           </div>
@@ -888,9 +888,9 @@ $defaultDb = DEFAULT_DB_FILE;
         <hr style="border:none; border-top:1px solid var(--border);">
 
         <div class="field">
-          <label>Full Website Sitemap Sync</label>
+          <label>Full Website / Songbooks Sync</label>
           <p style="font-size:12.5px; color:var(--text-muted); line-height:1.45;">
-            Sync all songs from <code>jrchord.com</code> (~1,196 songs) or <code>lagurohani.id</code> (~3,143 songs, skipping duplicates already in <code>JRChord.db</code>) into your Easyslides database.
+            Sync all songs from <code>jrchord.com</code> (~1,196 songs), <code>lagurohani.id</code> (~3,143 songs → <code>MasterLyricDB.db</code>), or <code>alkitab.app/songs</code> (23 Indonesian Christian Songbooks → separate <code>KJ.db</code>, <code>PKJ.db</code>, <code>NKB.db</code>, <code>NKI.db</code>, etc.).
           </p>
         </div>
 
@@ -905,10 +905,11 @@ $defaultDb = DEFAULT_DB_FILE;
           <div id="scrapeDetailText" style="margin-top:6px; color:var(--text-muted); font-size:12px;"></div>
         </div>
       </div>
-      <div class="modal-footer">
+      <div class="modal-footer" style="flex-wrap:wrap;">
         <button class="btn" onclick="closeModal('scraperModal')">Close</button>
         <button class="btn btn-primary" onclick="triggerFullScrape('jrchord')">🚀 Sync JRChord.com</button>
-        <button class="btn btn-accent" onclick="triggerFullScrape('lagurohani')">🚀 Sync LaguRohani.id → MasterLyricDB.db</button>
+        <button class="btn btn-accent" onclick="triggerFullScrape('lagurohani')">🚀 Sync LaguRohani.id</button>
+        <button class="btn btn-success" onclick="triggerFullScrape('alkitab')">📚 Sync Alkitab.app (23 Books)</button>
       </div>
     </div>
   </div>
