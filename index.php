@@ -8,7 +8,7 @@ $defaultDb = DEFAULT_DB_FILE;
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Easyslides Song & Lyric DB Editor — JRChord (Tanpa Chord)</title>
+  <title>Easyslides Song & Lyric Studio</title>
   <style>
     :root {
       --bg-body: #0f172a;
@@ -686,7 +686,6 @@ $defaultDb = DEFAULT_DB_FILE;
   <header class="topbar">
     <div class="brand">
       <span>🎵 Easyslides Song & Lyric Studio</span>
-      <span class="brand-badge">JRChord Tanpa Chord</span>
     </div>
 
     <div style="display:flex; align-items:center; gap:8px;">
@@ -761,7 +760,7 @@ $defaultDb = DEFAULT_DB_FILE;
           <div style="display:flex; align-items:center; gap:10px;">
             <h2 id="editorHeading" style="font-size:16px; font-weight:700;">Edit Song</h2>
             <span id="lastModifiedBadge" style="font-size:12px; color:var(--text-muted);"></span>
-            <a id="sourceUrlLink" href="#" target="_blank" style="font-size:12px; color:#60a5fa; display:none; text-decoration:none;">🔗 View on JRChord</a>
+            <a id="sourceUrlLink" href="#" target="_blank" style="font-size:12px; color:#60a5fa; display:none; text-decoration:none;">🔗 View Source</a>
           </div>
           <div style="display:flex; align-items:center; gap:8px;">
             <button class="btn btn-sm" onclick="toggleMoreFields()" id="moreFieldsBtn">⚙️ More Easyslides Fields</button>
