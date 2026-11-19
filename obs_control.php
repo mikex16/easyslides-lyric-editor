@@ -542,6 +542,9 @@ $obsUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'h
       if (st.connection_message) {
         document.getElementById('connDetailText').textContent = st.connection_message;
       }
+      if (st.connection_status === 'connected' && st.host && document.activeElement !== document.getElementById('cfgHost')) {
+        document.getElementById('cfgHost').value = st.host;
+      }
 
       document.getElementById('btnBlack').style.background = st.is_black ? '#ef4444' : '';
       document.getElementById('btnClear').style.background = st.is_clear ? '#f97316' : '';

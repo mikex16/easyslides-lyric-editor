@@ -15,14 +15,39 @@ $pidFile = __DIR__ . '/obs_daemon.pid';
 file_put_contents($pidFile, (string)getmypid());
 
 /**
- * Detect local LAN IPv4 address (Easyslides binds TcpListener to the active LAN IP)
+ * Get all candidate local IPv4 addresses on this machine
+ * (Easyslides binds TcpListener to one of the active adapter IPs rather than 127.0.0.1)
+ */
+function getCandidateLocalIps(string $preferredHost = ''): array {
+    $candidates = [];
+    $preferredHost = trim($preferredHost);
+    if ($preferredHost !== '' && $preferredHost !== '127.0.0.1' && strtolower($preferredHost) !== 'localhost') {
+        $candidates[] = $preferredHost;
+    }
+    $hostIps = @gethostbynamel((string)@gethostname());
+    if (is_array($hostIps)) {
+        // Prioritize real LAN/Wi-Fi IPs before virtual adapters (.1)
+        usort($hostIps, function ($a, $b) {
+            $aIsVirtual = str_ends_with($a, '.1') ? 1 : 0;
+            $bIsVirtual = str_ends_with($b, '.1') ? 1 : 0;
+            return $aIsVirtual <=> $bIsVirtual;
+        });
+        foreach ($hostIps as $ip) {
+            if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+                $candidates[] = $ip;
+            }
+        }
+    }
+    $candidates[] = '127.0.0.1';
+    return array_values(array_unique($candidates));
+}
+
+/**
+ * Detect primary local LAN IPv4 address
  */
 function detectLocalLanIp(): string {
-    $ip = @gethostbyname((string)@gethostname());
-    if (is_string($ip) && $ip !== '' && $ip !== '127.0.0.1' && filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-        return $ip;
-    }
-    return '127.0.0.1';
+    $ips = getCandidateLocalIps();
+    return $ips[0] ?? '127.0.0.1';
 }
 
 /**
@@ -313,42 +338,32 @@ while (true) {
         continue;
     }
 
-    $host = trim($cfg['host'] ?? '');
-    if ($host === '') {
-        $host = detectLocalLanIp();
-    }
+    $configuredHost = trim($cfg['host'] ?? '');
     $port = (int)($cfg['port'] ?? 9701);
     $serviceType = (int)($cfg['service_type'] ?? 1);
     $serviceName = ($serviceType === 0) ? 'StageDisplay' : 'LiveScreen';
     $password = trim($cfg['password'] ?? '');
     $nickname = trim($cfg['nickname'] ?? 'OBS-Overlay');
 
-    writeObsState([
-        'connection_status' => 'connecting',
-        'connection_message' => "Connecting to Easyslides Multicast at $host:$port ($serviceName)...",
-        'host' => $host,
-        'port' => $port,
-    ]);
-
+    $candidateIps = getCandidateLocalIps($configuredHost);
+    $socket = false;
+    $host = $candidateIps[0] ?? '127.0.0.1';
     $errno = 0;
     $errstr = '';
-    $socket = @stream_socket_client("tcp://$host:$port", $errno, $errstr, 3.5);
 
-    // If 127.0.0.1 failed because Easyslides binds exclusively to the LAN IP, automatically try the detected LAN IP!
-    if (!$socket && $host === '127.0.0.1') {
-        $lanIp = detectLocalLanIp();
-        if ($lanIp !== '127.0.0.1') {
-            $socket = @stream_socket_client("tcp://$lanIp:$port", $errno, $errstr, 3.5);
-            if ($socket) {
-                $host = $lanIp;
-            }
+    foreach ($candidateIps as $tryIp) {
+        $socket = @stream_socket_client("tcp://$tryIp:$port", $errno, $errstr, 0.8);
+        if ($socket) {
+            $host = $tryIp;
+            break;
         }
     }
 
     if (!$socket) {
+        $ipListStr = implode(', ', array_slice($candidateIps, 0, 4));
         writeObsState([
             'connection_status' => 'disconnected',
-            'connection_message' => "Waiting for Easyslides Multicast on $host:$port ($errstr)...",
+            'connection_message' => "Menunggu Easyslides Multicast (Port $port)... Sila buka Easyslides → tab 'Multicast' → klik butang 'Start Multicast'. (Tried IPs: $ipListStr)",
         ]);
         sleep(2);
         continue;
