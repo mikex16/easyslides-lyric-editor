@@ -152,7 +152,9 @@ $obsUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'h
     /* Simulated 16:9 OBS Preview Monitor */
     .preview-monitor-wrap {
       width: 100%;
+      max-width: 520px;
       aspect-ratio: 16 / 9;
+      margin: 0 auto;
       background:
         linear-gradient(135deg, rgba(30, 58, 138, 0.45), rgba(15, 23, 42, 0.75)),
         repeating-conic-gradient(#1e293b 0% 25%, #0f172a 0% 50%) 50% / 32px 32px;
@@ -164,6 +166,9 @@ $obsUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'h
     }
 
     .preview-iframe {
+      position: absolute;
+      top: 0;
+      left: 0;
       width: 1920px;
       height: 1080px;
       border: none;
@@ -363,12 +368,18 @@ $obsUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'h
     </div>
 
     <!-- Right Column: Live 16:9 OBS Preview + Direct Web Slide Controller -->
-    <div style="display:flex; flex-direction:column; gap:18px;">
+    <div style="display:flex; flex-direction:column; gap:18px; min-width:0;">
 
       <div class="card">
         <div class="card-title">
           <span>🖥 Live 1920×1080 OBS Overlay Preview</span>
-          <div style="display:flex; gap:8px;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <select id="previewSizeSelect" onchange="setPreviewSize(this.value)" style="padding:4px 8px; font-size:12px;">
+              <option value="420">Small (420px)</option>
+              <option value="520" selected>Medium (520px)</option>
+              <option value="680">Large (680px)</option>
+              <option value="100%">Full Width</option>
+            </select>
             <button class="btn btn-sm" id="btnBlack" onclick="toggleBlack()">⬛ Black Screen</button>
             <button class="btn btn-sm" id="btnClear" onclick="toggleClear()">🧹 Clear Lyrics</button>
           </div>
@@ -418,6 +429,11 @@ $obsUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'h
       const iframe = document.getElementById('previewIframe');
       const scale = wrap.clientWidth / 1920;
       iframe.style.transform = `scale(${scale})`;
+    }
+    function setPreviewSize(maxWidth) {
+      const wrap = document.getElementById('previewWrap');
+      wrap.style.maxWidth = maxWidth === '100%' ? '100%' : `${maxWidth}px`;
+      scalePreviewIframe();
     }
     window.addEventListener('resize', scalePreviewIframe);
     setTimeout(scalePreviewIframe, 50);
