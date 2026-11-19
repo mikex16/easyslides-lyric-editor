@@ -188,6 +188,9 @@ foreach ($bookLists as $book => $songs) {
                 if ($song !== null) {
                     try {
                         upsertEasyslidesSong($pdo, $song);
+                        if (isset($masterPdo)) {
+                            upsertEasyslidesSong($masterPdo, $song);
+                        }
                         $bookSaved++;
                         $globalSaved++;
                     } catch (Throwable $e) {
